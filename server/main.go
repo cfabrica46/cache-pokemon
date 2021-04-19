@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -8,11 +9,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 var db *sql.DB
+var b bytes.Buffer
 
 type Pokemon struct {
 	ID, Life, Level int
@@ -28,6 +31,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	go deleteCache()
 
 	http.HandleFunc("/", getPokes)
 
@@ -46,10 +51,18 @@ func getPokes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
 
+		if b.Len() != 0 {
+			fmt.Println("En Cache")
+			fmt.Fprintf(w, "%s\n", b.Bytes())
+			return
+		}
+
+		fmt.Println("En Databases")
+
 		rows, err := db.Query("SELECT id,name,life,type,level FROM pokemons")
 
 		if err != nil {
-			log.Fatal(err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
 
 		for rows.Next() {
@@ -59,17 +72,34 @@ func getPokes(w http.ResponseWriter, r *http.Request) {
 			err = rows.Scan(&pokemon.ID, &pokemon.Name, &pokemon.Life, &pokemon.Type, &pokemon.Level)
 
 			if err != nil {
-				log.Fatal(err)
+				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			}
 
-			err = json.NewEncoder(w).Encode(pokemon)
+			dataJSON, err := json.Marshal(pokemon)
 
 			if err != nil {
-				log.Fatal(err)
+				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			}
+
+			_, err = b.Write(dataJSON)
+
+			if err != nil {
+				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			}
+
+			fmt.Fprintf(w, "%s\n", dataJSON)
 
 		}
 
+	}
+
+}
+
+func deleteCache() {
+
+	for {
+		b.Reset()
+		time.Sleep(time.Second * 10)
 	}
 
 }
